@@ -11,7 +11,7 @@ authors = [
 description = "Python bindings for the random123 library of counter-based random number generators"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.9"
+requires-python = ">=3.7"
 classifiers = [
   "Development Status :: 1 - Planning",
   "Intended Audience :: Science/Research",
@@ -29,7 +29,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dynamic = ["version"]
-dependencies = []
+dependencies = ["numpy"]
 
 [project.urls]
 Homepage = "https://github.com/ssrothman/pyrandom123"
