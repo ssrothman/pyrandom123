@@ -1,117 +1,110 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 
-#include "Random123/philox.h"
+#include "pyrandom123/typeconversion.hpp"
+#include "pyrandom123/randomutil.hpp"
+
+#include <Random123/philox.h>
+#include <Random123/threefry.h>
+#include <Random123/ars.h>
 
 namespace py = pybind11;
 
-uint64_t get_uint64_philox2x32(uint64_t counter, uint32_t key){
-  using RNG = r123::Philox2x32;
-  RNG rng;
-  RNG::ctr_type c = {{
-      (uint32_t)(counter & 0xffffffff), 
-      (uint32_t)((counter >> 32) & 0xffffffff)
-  }};
-  RNG::ukey_type uk = {{key}};
-  RNG::key_type k = uk;
-  RNG::ctr_type rand = rng(c, k);
-  return static_cast<uint64_t>(rand[0]) + (static_cast<uint64_t>(rand[1]) << 32);
+struct uint2x32_t {
+    uint32_t A, B;
+};
+
+struct uint2x64_t {
+    uint64_t A, B;
+};
+
+uint2x32_t philox2x32_get_2x32(uint64_t counter, uint32_t key){
+    using RNG = r123::Philox2x32;
+    RNG rng;
+    typename RNG::ctr_type c = {{
+        (uint32_t)(counter & 0xffffffff), 
+        (uint32_t)((counter << 32) & 0xffffffff)
+    }};
+    typename RNG::ukey_type uk = {{key}};
+    typename RNG::key_type k = uk;
+    typename RNG::ctr_type rand = rng(c, k);
+    return {rand[0], rand[1]};
 }
 
-py::array_t<uint64_t> get_uint64_philox2x32_vectorized(
-    const py::array_t<uint64_t>& counter,
-    const py::array_t<uint32_t>& key) {
-
-    return py::vectorize(get_uint64_philox2x32)(
-        counter, key);
+uint64_t philox2x32_get_uint64(uint64_t counter, uint32_t key){
+    auto rand = philox2x32_get_2x32(counter, key);
+    return uint64_from_2xuint32(rand.A, rand.B);
 }
 
-double get_float64_philox2x32(uint64_t counter, uint32_t key){
-    uint64_t val = get_uint64_philox2x32(counter, key);
-    return static_cast<double>(val) / static_cast<double>(UINT64_MAX);
+uint2x32_t threefry2x32_get_2x32(uint64_t counter, uint64_t key){
+    using RNG = r123::Threefry2x32;
+    RNG rng;
+    typename RNG::ctr_type c = {{
+        (uint32_t)(counter & 0xffffffff), 
+        (uint32_t)((counter << 32) & 0xffffffff)
+    }};
+    typename RNG::ukey_type uk = {{
+        (uint32_t)(key & 0xffffffff), 
+        (uint32_t)((key << 32) & 0xffffffff)
+    }};
+    typename RNG::key_type k = uk;
+    typename RNG::ctr_type rand = rng(c, k);
+    return {rand[0], rand[1]};
 }
 
-py::array_t<double> get_float64_philox2x32_vectorized(
-    const py::array_t<uint64_t>& counter,
-    const py::array_t<uint32_t>& key) {
-
-    return py::vectorize(get_float64_philox2x32)(
-        counter, key);
+uint64_t threefry2x32_get_uint64(uint64_t counter, uint64_t key){
+    auto rand = threefry2x32_get_2x32(counter, key);
+    return uint64_from_2xuint32(rand.A, rand.B);
 }
 
-uint32_t get_poisson1_philox2x32(uint64_t counter, uint32_t key){
-    static constexpr double EXP_MINUS_ONE = 0.367879441171442321595523770161460867445811131031767834507836801697461496; 
-    double p = get_float64_philox2x32(counter, key);
-    uint32_t k = 0;
-    while (p > EXP_MINUS_ONE) {
-        ++k;
-        p *= get_float64_philox2x32(counter + k, key);
-    }
-    return k;
+PYBIND11_MODULE(_core, m) {
+    //declare 2x32 and 2x64 data types
+    PYBIND11_NUMPY_DTYPE(uint2x32_t, A, B);
+    PYBIND11_NUMPY_DTYPE(uint2x64_t, A, B);
+
+    py::class_<uint2x32_t>(m, "uint2x32")
+        .def(py::init<uint32_t, uint32_t>())
+        .def_readonly("A", &uint2x32_t::A)
+        .def_readonly("B", &uint2x32_t::B);
+
+    py::class_<uint2x64_t>(m, "uint2x64")
+        .def(py::init<uint64_t, uint64_t>())
+        .def_readonly("A", &uint2x64_t::A)
+        .def_readonly("B", &uint2x64_t::B);
+
+    py::module util = m.def_submodule("util");
+    
+    util.def("uint64_to_float64", &float64_from_uint64);
+    util.def("uint64_to_float64", py::vectorize(float64_from_uint64));
+
+    util.def("float64_to_poisson1", &get_poisson1_from_one_float64);
+    util.def("float64_to_poisson1", py::vectorize(get_poisson1_from_one_float64));
+
+    util.def("uint64_to_poisson1", &get_poisson1_from_one_uint64);
+    util.def("uint64_to_poisson1", py::vectorize(get_poisson1_from_one_uint64));
+
+    util.def("uint32_to_float32", &float32_from_uint32);
+    util.def("uint32_to_float32", py::vectorize(float32_from_uint32));
+
+    util.def("float32_to_poisson1", &get_poisson1_from_one_float32);
+    util.def("float32_to_poisson1", py::vectorize(get_poisson1_from_one_float32));
+
+    util.def("uint32_to_poisson1", &get_poisson1_from_one_uint32);
+    util.def("uint32_to_poisson1", py::vectorize(get_poisson1_from_one_uint32));
+
+    py::module philox2x32 = m.def_submodule("philox2x32");
+
+    philox2x32.def("get_uint64", &philox2x32_get_uint64);
+    philox2x32.def("get_uint64", py::vectorize(philox2x32_get_uint64));
+
+    philox2x32.def("get_uint2x32", &philox2x32_get_2x32);
+    philox2x32.def("get_uint2x32", py::vectorize(philox2x32_get_2x32));
+
+    py::module threefry2x32 = m.def_submodule("threefry2x32");
+
+    threefry2x32.def("get_uint64", &threefry2x32_get_uint64);
+    threefry2x32.def("get_uint64", py::vectorize(threefry2x32_get_uint64));
+
+    threefry2x32.def("get_uint2x32", &threefry2x32_get_2x32);
+    threefry2x32.def("get_uint2x32", py::vectorize(threefry2x32_get_2x32));
 }
-
-py::array_t<uint32_t> get_poisson1_philox2x32_vectorized(
-    const py::array_t<uint64_t>& counter,
-    const py::array_t<uint32_t>& key) {
-
-    return py::vectorize(get_poisson1_philox2x32)(
-        counter, key);
-}
-
-PYBIND11_MODULE(_philox2x32, m1) {
-  m1.def("get_uint64_philox2x32", &get_uint64_philox2x32, R"pbdoc(
-      Get a random number from the Philox2x32 RNG
-      Args:
-          counter (np.uint64): The counter value
-          key (np.uint32): The key value
-      Returns:
-          np.uint64: A random number generated by the RNG
-    )pbdoc");
-
-    m1.def("get_uint64_philox2x32", &get_uint64_philox2x32_vectorized, R"pbdoc(
-        Get a random number from the Philox2x32 RNG for arrays
-        Args:
-            counter (np.ndarray): An array of counter values
-            key (np.ndarray): An array of key values
-        Returns:
-            np.ndarray: An array of random numbers generated by the RNG
-    )pbdoc");
-
-    m1.def("get_float64_philox2x32", &get_float64_philox2x32, R"pbdoc(
-        Get a float64 random number from the Philox2x32 RNG
-        Args:
-            counter (np.uint64): The counter value
-            key (np.uint32): The key value
-        Returns:
-            np.float64: A random float number generated by the RNG
-    )pbdoc");
-
-    m1.def("get_float64_philox2x32", &get_float64_philox2x32_vectorized, R"pbdoc(
-        Get float64 random numbers from the Philox2x32 RNG for arrays
-        Args:
-            counter (np.ndarray): An array of counter values
-            key (np.ndarray): An array of key values
-        Returns:
-            np.ndarray: An array of random float numbers generated by the RNG
-    )pbdoc");
-
-    m1.def("get_poisson1_philox2x32", &get_poisson1_philox2x32, R"pbdoc(
-        Get a Poisson-distributed random number from the Philox2x32 RNG
-        Args:
-            counter (np.uint64): The counter value
-            key (np.uint32): The key value
-        Returns:
-            np.uint32: A Poisson-distributed random number generated by the RNG
-    )pbdoc");
-
-    m1.def("get_poisson1_philox2x32", &get_poisson1_philox2x32_vectorized, R"pbdoc(
-        Get Poisson-distributed random numbers from the Philox2x32 RNG for arrays
-        Args:
-            counter (np.ndarray): An array of counter values
-            key (np.ndarray): An array of key values
-        Returns:
-            np.ndarray: An array of Poisson-distributed random numbers generated by the RNG
-    )pbdoc");
-}
-
-
